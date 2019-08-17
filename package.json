@@ -1,0 +1,31 @@
+{
+  "name": "google-calendar-logger",
+  "version": "0.1.0",
+  "description": "Provides ways to log time to your Google Calendar",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anoesj/google-calendar-logger.git"
+  },
+  "keywords": [
+    "google",
+    "calendar",
+    "logger",
+    "timelog",
+    "gcal"
+  ],
+  "author": "Anoesj Sadraee",
+  "bugs": {
+    "url": "https://github.com/anoesj/google-calendar-logger/issues"
+  },
+  "homepage": "https://github.com/anoesj/google-calendar-logger#readme",
+  "license": "ISC",
+  "devDependencies": {
+    "chalk": "^2.4.2",
+    "googleapis": "^42.0.0",
+    "moment-timezone": "^0.5.25"
+  },
+  "engines": {
+    "node": ">=10.0.0"
+  }
+}
