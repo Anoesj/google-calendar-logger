@@ -1,6 +1,6 @@
 # Google Calendar Logger
 
-Work in progress, package will not work properly at this time. More information will follow.
+***Work in progress, package will not work properly at this time. More information will follow.***
 
 ## Installation
 - `pnpm i google-calendar-logger -D`
@@ -9,7 +9,7 @@ Work in progress, package will not work properly at this time. More information 
 
 ## Usage
 To start using the logger, you'll need to:
-1. generate a credentials.json at https://developers.google.com/calendar/quickstart/nodejscreate
+1. generate a credentials.json at https://developers.google.com/calendar/quickstart/nodejs
 2. create an instance of the logger
 3. then, the first time, you'll be asked to visit a URL to generate a token.json
 
