@@ -1,18 +1,15 @@
 'use strict';
 
-// See: https://michaelheap.com/working-with-the-google-calendar-api-in-node-js/
-
 const { google } = require('googleapis'),
       googleAPIGetAuth = require('./authorize.js'),
       chalk = require('chalk'),
       moment = require('moment-timezone');
 
-// REVIEW: or export default?
+/** Google Calendar Logger */
 module.exports = class GoogleCalendarLogger {
 
   /**
-   * TODO: documentation
-   *
+   * Create a Google Calendar Logger instance
    * @param {Object} options
    * @param {String} options.credentialsPath Path to credentials.json (generate here: https://developers.google.com/calendar/quickstart/nodejs)
    * @param {String} options.tokenPath Path to where token.json should be placed (including filename + .json)
@@ -23,28 +20,16 @@ module.exports = class GoogleCalendarLogger {
   constructor (options) {
     this.setDefaults();
 
-    let credentialsPath,
-        tokenPath,
-        calendarSummary,
-        minutesUntilInactivity,
-        stringsOverrides;
+    const {
+      // Required
+      credentialsPath,
+      tokenPath,
+      calendar: calendarSummary,
 
-    // e.g. new GoogleCalendarLogger('Some calendar name');
-    // TODO: deprecated as of 14-08-2019, because credentials and token should be mandatory parameters (also, do check if they're set too)
-    if (typeof options === 'string') {
-      calendarSummary = options;
-    }
-
-    // e.g. new GoogleCalendarLogger({ calendar: 'Some calendar name', minutesUntilInactivity: 10 });
-    else {
-      ({
-        credentialsPath,
-        tokenPath,
-        calendar: calendarSummary,
-        minutesUntilInactivity,
-        strings: stringsOverrides = {},
-      } = options);
-    }
+      // Optional
+      minutesUntilInactivity,
+      strings: stringsOverrides = {},
+    } = options;
 
     this.setCredentialsPath(credentialsPath);
     this.setTokenPath(tokenPath);
@@ -54,15 +39,73 @@ module.exports = class GoogleCalendarLogger {
 
     // Init Google Calendar connection
     this.initCalendarConnection();
-
-    // TODO: Warn no calendar summary
   }
+
+  /***********************************************
+   * Default setters
+   **********************************************/
 
   setDefaults () {
-    this.calendarSummary = undefined;
     this.minutesUntilInactivity = 30;
-    this.strings = this.getStrings();
+    this.strings = this.getDefaultStrings();
   }
+
+  getDefaultStrings () {
+    return {
+      activityStarted:      projectName => `Started working on ${projectName}`,
+      activityInProgress:   projectName => `Working on ${projectName}`,
+      activityConcluded:    projectName => `Worked on ${projectName}`,
+      changedFile:          fileName => `Changed file ${fileName}`,
+      possibleInactivity:   (startTime, endTime) => `Possible inactivity detected from ${startTime} to ${endTime}`,
+    }
+  }
+
+  /***********************************************
+   * Option setters
+   **********************************************/
+
+  setCredentialsPath (value) {
+    if (typeof value === 'string' && value !== '') {
+      this.credentialsPath = value;
+    }
+    else {
+      throw new Error(`Missing or incorrect value for required option 'credentialsPath'`);
+    }
+  }
+
+  setTokenPath (value) {
+    if (typeof value === 'string' && value !== '') {
+      this.tokenPath = value;
+    }
+    else {
+      throw new Error(`Missing or incorrect value for required option 'tokenPath'`);
+    }
+  }
+
+  setCalendarSummary (value) {
+    if (typeof value === 'string' && value !== '') {
+      this.calendarSummary = value;
+    }
+    else {
+      throw new Error(`Missing or incorrect value for required option 'calendar'`);
+    }
+  }
+
+  setMinutesUntilInactivity (minutes) {
+    if (typeof minutes === 'number' && minutes > 0) {
+      this.minutesUntilInactivity = minutes;
+    }
+  }
+
+  setStringsOverrides (stringsOverrides) {
+    if (stringsOverrides !== null && typeof stringsOverrides === 'object' && !Array.isArray(stringsOverrides)) {
+      this.strings = Object.assign(this.strings, stringsOverrides);
+    }
+  }
+
+  /***********************************************
+   * Authorization & Google Calendar connection
+   **********************************************/
 
   initCalendarConnection () {
     this.calendarConnection = new Promise(async (resolve, reject) => {
@@ -82,6 +125,55 @@ module.exports = class GoogleCalendarLogger {
     });
   }
 
+  async getOrCreateCalendar (googleCalendar, calenderSummary) {
+    return await new Promise((resolve, reject) => {
+      googleCalendar.calendarList.list({}, (err, response) => {
+        if (err) reject(err);
+        if (calenderSummary === null || calenderSummary === '' || typeof calenderSummary === 'undefined') {
+          // TODO: Throw or console error
+        }
+
+        const cal = response.data.items.find(item => item.summary === calenderSummary);
+
+        // If cal exists, return it
+        if (cal) {
+          console.log(chalk.green(`Found calendar “${calenderSummary}”`));
+          return resolve(cal);
+        }
+
+        // If cal doesn't exist, create it
+        else {
+          console.log(chalk.blue(`Creating calendar “${calenderSummary}”`));
+
+          const newCal = {
+            resource: {
+              summary: calenderSummary,
+            },
+          };
+
+          googleCalendar.calendars.insert(newCal, (err, response) => {
+            if (err) throw err;
+            console.log(chalk.green(`Created calendar “${calenderSummary}”`));
+            return resolve(response.data);
+          });
+        }
+      });
+    });
+  }
+
+  async getCalendarId (googleCalendar, calendarSummary) {
+    const timelogCalendar = await this.getOrCreateCalendar(googleCalendar, calendarSummary);
+    return timelogCalendar.id;
+  }
+
+  /***********************************************
+   *  Helpers
+   **********************************************/
+
+  get msUntilInactivity () {
+    return this.minutesUntilInactivity * 1000 * 60;
+  }
+
   getCurrentTime () {
     return {
       currentTime: new Date(),
@@ -89,10 +181,12 @@ module.exports = class GoogleCalendarLogger {
     };
   }
 
-  async getCalendarId (googleCalendar, calendarSummary) {
-    const timelogCalendar = await this.getOrCreateCalendar(googleCalendar, calendarSummary);
-    return timelogCalendar.id;
-  }
+  /***********************************************
+   * Log methods
+   *
+   * These are the methods by people who
+   * install this module will actually use.
+   **********************************************/
 
   /**
    * Create a start event in calendar 'calendarSummary'.
@@ -102,15 +196,15 @@ module.exports = class GoogleCalendarLogger {
   async logStart (calendarSummary = this.calendarSummary, logName = this.strings.activityStarted) {
     if (typeof logName === 'function') logName = logName(calendarSummary);
 
-    // Create starting event
-    const {
-      currentTime: startTime,
-      timeZone,
-    } = this.getCurrentTime();
-
     const googleCalendar = await this.calendarConnection,
           calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
 
+    const {
+      timeZone,
+      currentTime: startTime,
+    } = this.getCurrentTime();
+
+    // Create starting event
     await new Promise((resolve, reject) => {
       const event = {
         calendarId,
@@ -149,13 +243,13 @@ module.exports = class GoogleCalendarLogger {
   async logActivity (calendarSummary = this.calendarSummary, logName = this.strings.activityInProgress) {
     if (typeof logName === 'function') logName = logName(calendarSummary);
 
+    const googleCalendar = await this.calendarConnection,
+          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
+
     const {
       currentTime: activityTime,
       timeZone,
     } = this.getCurrentTime();
-
-    const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
 
     // Get the latest incomplete work log
     const latestIncompleteWork = await new Promise((resolve, reject) => {
@@ -286,51 +380,52 @@ module.exports = class GoogleCalendarLogger {
   async logEnd (calendarSummary = this.calendarSummary, logName = this.strings.activityConcluded) {
     if (typeof logName === 'function') logName = logName(calendarSummary);
 
+    const googleCalendar = await this.calendarConnection,
+          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
+
     const {
       currentTime: endTime,
       timeZone,
     } = this.getCurrentTime();
 
-    const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
-
     // Get the latest incomplete work log
     const latestIncompleteWork = await new Promise((resolve, reject) => {
-      const listParams = {
-        calendarId,
-        // Google Calendar API doesn't support listing in descending order,
-        // we have to specify timeMin and timeMax instead and reverse order later.
-        // Assuming you didn't start working more than 1 month ago, this should work:
-        timeMin: new Date(+endTime - 1000 * 60 * 60 * 24 * 31).toISOString(),
-        timeMax: endTime.toISOString(),
-        timeZone,
-        singleEvents: true,
-        orderBy: 'startTime',
-      };
-
-      googleCalendar.events.list(listParams, (err, response) => {
-        if (err) {
-          console.log(chalk.red('An error occured during listing events:'));
-          return reject(err);
-        }
-
-        const events = response.data.items;
-        if (events.length) {
-          // Get the latest log with 'incomplete work' in the description
-          const latestIncompleteWork = events.reverse().find(event => event.description.startsWith('incomplete work'));
-
-          if (latestIncompleteWork) {
-            resolve(latestIncompleteWork);
+      googleCalendar.events.list(
+        {
+          calendarId,
+          // Google Calendar API doesn't support listing in descending order,
+          // we have to specify timeMin and timeMax instead and reverse order later.
+          // Assuming you didn't start working more than 1 month ago, this should work:
+          timeMin: new Date(+endTime - 1000 * 60 * 60 * 24 * 31).toISOString(),
+          timeMax: endTime.toISOString(),
+          timeZone,
+          singleEvents: true,
+          orderBy: 'startTime',
+        },
+        (err, response) => {
+          if (err) {
+            console.log(chalk.red('An error occured during listing events:'));
+            return reject(err);
           }
 
+          const events = response.data.items;
+          if (events.length) {
+            // Get the latest log with 'incomplete work' in the description
+            const latestIncompleteWork = events.reverse().find(event => event.description.startsWith('incomplete work'));
+
+            if (latestIncompleteWork) {
+              resolve(latestIncompleteWork);
+            }
+
+            else {
+              reject(new Error(`Couldn't create log: no latest incomplete event found in the past 31 days.`));
+            }
+          }
           else {
-            reject(new Error(`Couldn't create log: no latest incomplete event found in the past 31 days.`));
+            reject(new Error(`Couldn't create log: found no events in the past 31 days.`));
           }
         }
-        else {
-          reject(new Error(`Couldn't create log: found no events in the past 31 days.`));
-        }
-      });
+      );
     });
 
     await new Promise((resolve, reject) => {
@@ -357,86 +452,6 @@ module.exports = class GoogleCalendarLogger {
         resolve();
       });
     });
-  }
-
-  async getOrCreateCalendar (googleCalendar, calenderSummary) {
-    return await new Promise((resolve, reject) => {
-      googleCalendar.calendarList.list({}, (err, response) => {
-        if (err) reject(err);
-        if (typeof calenderSummary === 'undefined') {
-          // TODO: Throw or console error
-        }
-
-        const cal = response.data.items.find(item => item.summary === calenderSummary);
-
-        // If Espressivo cal exists, return it
-        if (cal) {
-          console.log(chalk.green(`Found calendar “${calenderSummary}”`));
-          return resolve(cal);
-        }
-
-        // If Espressivo cal doesn't exist, create it
-        else {
-          console.log(chalk.blue(`Creating calendar “${calenderSummary}”`));
-
-          const newCal = {
-            resource: {
-              summary: calenderSummary,
-            },
-          };
-
-          googleCalendar.calendars.insert(newCal, (err, response) => {
-            if (err) throw err;
-            console.log(chalk.green(`Created calendar “${calenderSummary}”`));
-            return resolve(response.data);
-          });
-        }
-      });
-    });
-  }
-
-  get msUntilInactivity () {
-    return this.minutesUntilInactivity * 1000 * 60;
-  }
-
-  setCredentialsPath (credentialsPath) {
-    if (credentialsPath && typeof credentialsPath === 'string') {
-      this.credentialsPath = credentialsPath;
-    }
-  }
-
-  setTokenPath (tokenPath) {
-    if (tokenPath && typeof tokenPath === 'string') {
-      this.tokenPath = tokenPath;
-    }
-  }
-
-  setCalendarSummary (calendarSummary) {
-    if (calendarSummary && typeof calendarSummary === 'string') {
-      this.calendarSummary = calendarSummary;
-    }
-  }
-
-  setMinutesUntilInactivity (minutes) {
-    if (minutes && typeof minutes === 'Number') {
-      this.minutesUntilInactivity = minutes;
-    }
-  }
-
-  setStringsOverrides (stringsOverrides) {
-    if (stringsOverrides !== null && typeof stringsOverrides === 'object' && !Array.isArray(stringsOverrides)) {
-      this.strings = Object.assign(this.strings, stringsOverrides);
-    }
-  }
-
-  getStrings () {
-    return {
-      activityStarted:     projectName => `Started working on ${projectName}`,
-      activityInProgress:  projectName => `Working on ${projectName}`,
-      activityConcluded:       projectName => `Worked on ${projectName}`,
-      changedFile:      fileName => `Changed file ${fileName}`,
-      possibleInactivity: (startTime, endTime) => `Possible inactivity detected from ${startTime} to ${endTime}`,
-    }
   }
 
 }

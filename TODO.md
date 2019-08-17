@@ -1,4 +1,5 @@
 # TODO:
+- Add examples
 - Store file changes in calendar events descriptions.
 - Change format into (_throttle per x minutes and combine changes_):
     ```
