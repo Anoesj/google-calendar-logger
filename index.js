@@ -197,7 +197,7 @@ module.exports = class GoogleCalendarLogger {
     if (typeof logName === 'function') logName = logName(calendarSummary);
 
     const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
+          calendarId = await this.getCalendarId(googleCalendar, calendarSummary);
 
     const {
       timeZone,
@@ -244,7 +244,7 @@ module.exports = class GoogleCalendarLogger {
     if (typeof logName === 'function') logName = logName(calendarSummary);
 
     const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
+          calendarId = await this.getCalendarId(googleCalendar, calendarSummary);
 
     const {
       currentTime: activityTime,
@@ -381,7 +381,7 @@ module.exports = class GoogleCalendarLogger {
     if (typeof logName === 'function') logName = logName(calendarSummary);
 
     const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarySummary);
+          calendarId = await this.getCalendarId(googleCalendar, calendarSummary);
 
     const {
       currentTime: endTime,
