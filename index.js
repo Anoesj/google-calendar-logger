@@ -278,9 +278,9 @@ module.exports = class GoogleCalendarLogger {
       const patchParams = {
         calendarId: this.calendarId,
         eventId: latestIncompleteLogEvent.id,
-        description: this.addToDescription(activityTime, activityDescription, latestIncompleteLogEvent.description),
         resource: {
           summary: logName,
+          description: this.addToDescription(activityTime, activityDescription, latestIncompleteLogEvent.description),
           end: {
             dateTime: activityTime.toISOString(),
             timeZone,
@@ -450,16 +450,14 @@ module.exports = class GoogleCalendarLogger {
   }
 
   addToDescription (date, activity, description = '') {
-    console.log('Description was:\n', description, '\n');
     // If not empty description, add newline
-    if (description !== '') description += `${description}\n`;
+    if (description !== '') description += `\n`;
 
     const hh = `0${date.getHours()}`.slice(-2),
           mm = `0${date.getMinutes()}`.slice(-2);
 
     // Add the new activity
     description += `${hh}:${mm} – ${activity}`;
-    console.log('Now: \n', description, '\n');
     return description;
   }
 
