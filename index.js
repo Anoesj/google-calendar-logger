@@ -14,8 +14,9 @@ module.exports = class GoogleCalendarLogger {
    * @param {String} options.credentialsPath Path to credentials.json (generate here: https://developers.google.com/calendar/quickstart/nodejs)
    * @param {String} options.tokenPath Path to where token.json should be placed (including filename + .json)
    * @param {String} options.calendar How much time can exist between logged activities, before the log gets interrupted.
-   * @param {Number} [options.minutesUntilInactivity=30] How much time can exist between logged activities, before the log gets interrupted.
+   * @param {Number} [options.minutesUntilInactivity=10] How much time can exist between logged activities, before the log gets interrupted.
    * @param {Object} [options.strings={}] Strings overrides.
+   * @param {Boolean} [options.showLinks=false] Print links to events in the CLI?
    */
   constructor (options) {
     this.setDefaults();
@@ -29,6 +30,7 @@ module.exports = class GoogleCalendarLogger {
       // Optional
       minutesUntilInactivity,
       strings: stringsOverrides = {},
+      showLinks = false,
     } = options;
 
     this.setCredentialsPath(credentialsPath);
@@ -36,6 +38,7 @@ module.exports = class GoogleCalendarLogger {
     this.setCalendarSummary(calendarSummary);
     this.setMinutesUntilInactivity(minutesUntilInactivity);
     this.setStringsOverrides(stringsOverrides);
+    this.setShowLinks(showLinks);
 
     // Init Google Calendar connection
     this.initCalendarConnection();
@@ -46,45 +49,46 @@ module.exports = class GoogleCalendarLogger {
    **********************************************/
 
   setDefaults () {
-    this.minutesUntilInactivity = 30;
+    this.minutesUntilInactivity = 10;
     this.strings = this.getDefaultStrings();
   }
 
   getDefaultStrings () {
     return {
-      activityStarted:      projectName => `Started working on ${projectName}`,
-      activityInProgress:   projectName => `Working on ${projectName}`,
-      activityConcluded:    projectName => `Worked on ${projectName}`,
-      changedFile:          fileName => `Changed file ${fileName}`,
-      possibleInactivity:   (startTime, endTime) => `Possible inactivity detected from ${startTime} to ${endTime}`,
+      activityStarted:              projectName => `Started working on ${projectName}`,
+      activityInProgress:           projectName => `Working on ${projectName}`,
+      activityConcluded:            projectName => `Worked on ${projectName}`,
+      activityLogged:               projectName => `Activity in ${projectName}`,
+      closedDueToInactivity:        projectName => `(closed due to inactivity)`,
     }
   }
+
 
   /***********************************************
    * Option setters
    **********************************************/
 
-  setCredentialsPath (value) {
-    if (typeof value === 'string' && value !== '') {
-      this.credentialsPath = value;
+  setCredentialsPath (credentialsPath) {
+    if (typeof credentialsPath === 'string' && credentialsPath !== '') {
+      this.credentialsPath = credentialsPath;
     }
     else {
       throw new Error(`Missing or incorrect value for required option 'credentialsPath'`);
     }
   }
 
-  setTokenPath (value) {
-    if (typeof value === 'string' && value !== '') {
-      this.tokenPath = value;
+  setTokenPath (tokenPath) {
+    if (typeof tokenPath === 'string' && tokenPath !== '') {
+      this.tokenPath = tokenPath;
     }
     else {
       throw new Error(`Missing or incorrect value for required option 'tokenPath'`);
     }
   }
 
-  setCalendarSummary (value) {
-    if (typeof value === 'string' && value !== '') {
-      this.calendarSummary = value;
+  setCalendarSummary (calendarSummary) {
+    if (typeof calendarSummary === 'string' && calendarSummary !== '') {
+      this.calendarSummary = calendarSummary;
     }
     else {
       throw new Error(`Missing or incorrect value for required option 'calendar'`);
@@ -103,6 +107,13 @@ module.exports = class GoogleCalendarLogger {
     }
   }
 
+  setShowLinks (showLinks) {
+    if (typeof showLinks === 'boolean') {
+      this.showLinks = showLinks;
+    }
+  }
+
+
   /***********************************************
    * Authorization & Google Calendar connection
    **********************************************/
@@ -112,58 +123,58 @@ module.exports = class GoogleCalendarLogger {
       try {
         const auth = await googleAPIGetAuth(this.credentialsPath, this.tokenPath);
 
-        resolve(google.calendar({
+        const googleCalendar = google.calendar({
           version: 'v3',
           auth
-        }));
+        });
+
+        const calendar = await this.getOrCreateCalendar(googleCalendar);
+        this.calendarId = calendar.id;
+
+        resolve(googleCalendar);
       }
 
       catch (err) {
-        // TODO: console.log with human-readable error msg here
+        console.error(chalk.red(`Could not establish connection with Google Calendar API.`));
         reject(err);
       }
     });
   }
 
-  async getOrCreateCalendar (googleCalendar, calenderSummary) {
-    return await new Promise((resolve, reject) => {
+  async getOrCreateCalendar (googleCalendar) {
+    return new Promise((resolve, reject) => {
       googleCalendar.calendarList.list({}, (err, response) => {
-        if (err) reject(err);
-        if (calenderSummary === null || calenderSummary === '' || typeof calenderSummary === 'undefined') {
-          // TODO: Throw or console error
+        if (err) {
+          return reject(err);
         }
 
-        const cal = response.data.items.find(item => item.summary === calenderSummary);
+        const { calendarSummary } = this,
+              calendar = response.data.items.find(item => item.summary === calendarSummary);
 
         // If cal exists, return it
-        if (cal) {
-          console.log(chalk.green(`Found calendar “${calenderSummary}”`));
-          return resolve(cal);
+        if (calendar) {
+          console.log(chalk.green(`Found calendar “${calendarSummary}”.`));
+          resolve(calendar);
         }
 
         // If cal doesn't exist, create it
         else {
-          console.log(chalk.blue(`Creating calendar “${calenderSummary}”`));
+          console.log(chalk.blue(`Creating calendar “${calendarSummary}”.`));
 
           const newCal = {
             resource: {
-              summary: calenderSummary,
+              summary: calendarSummary,
             },
           };
 
           googleCalendar.calendars.insert(newCal, (err, response) => {
             if (err) throw err;
-            console.log(chalk.green(`Created calendar “${calenderSummary}”`));
-            return resolve(response.data);
+            console.log(chalk.green(`Created calendar “${calenderSummary}”.`));
+            resolve(response.data);
           });
         }
       });
     });
-  }
-
-  async getCalendarId (googleCalendar, calendarSummary) {
-    const timelogCalendar = await this.getOrCreateCalendar(googleCalendar, calendarSummary);
-    return timelogCalendar.id;
   }
 
   /***********************************************
@@ -189,15 +200,11 @@ module.exports = class GoogleCalendarLogger {
    **********************************************/
 
   /**
-   * Create a start event in calendar 'calendarSummary'.
-   * @param {String} calendarSummary Title of the calendar.
-   * @param {String} logName Desired title of the start event.
+   * Create a start event
    */
-  async logStart (calendarSummary = this.calendarSummary, logName = this.strings.activityStarted) {
-    if (typeof logName === 'function') logName = logName(calendarSummary);
-
+  async logStart () {
     const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarSummary);
+          logName = this.getLogName(this.strings.activityStarted);
 
     const {
       timeZone,
@@ -205,66 +212,213 @@ module.exports = class GoogleCalendarLogger {
     } = this.getCurrentTime();
 
     // Create starting event
-    await new Promise((resolve, reject) => {
-      const event = {
-        calendarId,
-        resource: {
-          summary: logName,
-          description: 'incomplete work (leave this here)',
-          start: {
-            dateTime: startTime.toISOString(),
-            timeZone,
-          },
-          end: {
-            dateTime: new Date(+startTime + 1000).toISOString(), // duration of 1 second
-            timeZone,
+    const eventParams = {
+      calendarId: this.calendarId,
+      resource: {
+        summary: logName,
+        description: this.addToDescription(startTime, logName),
+        start: {
+          dateTime: startTime.toISOString(),
+          timeZone,
+        },
+        end: {
+          // Set initial duration of 1 second
+          dateTime: new Date(+startTime + 1000).toISOString(),
+          timeZone,
+        },
+        extendedProperties: {
+          private: {
+            completed: 'false',
           },
         },
-      };
+      },
+    };
 
-      googleCalendar.events.insert(event, (err, response) => {
+    return new Promise((resolve, reject) => {
+      googleCalendar.events.insert(eventParams, (err, response) => {
         if (err) {
-          console.log(chalk.red(`There was an error creating a start event`));
+          console.log(chalk.red(`There was an error creating a start event.`));
           return reject(err);
         }
 
-        console.log(chalk.green(`Start event created: ${response.data.htmlLink}`));
+        const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
+        console.log(chalk.green(`Start event created${linkOrDot}`));
         resolve();
       });
     });
   }
 
   /**
-   * Create an activity event in calendar 'calendarSummary'.
-   * @param {String} calendarSummary Title of the calendar.
-   * @param {String} logName Desired title of the work in progress event.
+   * Log activity
    */
-  // FIXME: This is turning into spaghetti and it's broken. Refactor and finish.
-  async logActivity (calendarSummary = this.calendarSummary, logName = this.strings.activityInProgress) {
-    if (typeof logName === 'function') logName = logName(calendarSummary);
-
+  async logActivity (activityDescription = this.strings.activityLogged) {
     const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarSummary);
+          logName = this.getLogName(this.strings.activityInProgress);
 
     const {
       currentTime: activityTime,
       timeZone,
     } = this.getCurrentTime();
 
-    // Get the latest incomplete work log
-    const latestIncompleteWork = await new Promise((resolve, reject) => {
-      const listParams = {
-        calendarId,
-        // Google Calendar API doesn't support listing in descending order,
-        // we have to specify timeMin and timeMax instead and reverse order later.
-        // Assuming you didn't start working more than 1 month ago, this should work:
-        timeMin: new Date(+activityTime - 1000 * 60 * 60 * 24 * 31).toISOString(),
-        timeMax: activityTime.toISOString(),
-        timeZone,
-        singleEvents: true,
-        orderBy: 'startTime',
+    // Get the latest incomplete work log event
+    const latestIncompleteLogEvent = await this.getLatestIncompleteLogEvent(activityTime, timeZone);
+
+    // Check for inactivity
+    const inactivityDetected = this.hasInactivity(latestIncompleteLogEvent, activityTime);
+
+    if (inactivityDetected) {
+      // End previous log first
+      await this.logEndDueToInactivity(latestIncompleteLogEvent, activityTime);
+
+      // Then start new, so we don't accidentally immediately end the newly started log
+      await this.logStart();
+    }
+
+    else {
+      const patchParams = {
+        calendarId: this.calendarId,
+        eventId: latestIncompleteLogEvent.id,
+        description: this.addToDescription(activityTime, activityDescription, latestIncompleteLogEvent.description),
+        resource: {
+          summary: logName,
+          end: {
+            dateTime: activityTime.toISOString(),
+            timeZone,
+          },
+          extendedProperties: {
+            private: {
+              completed: 'false',
+            },
+          },
+        },
       };
 
+      return new Promise((resolve, reject) => {
+        googleCalendar.events.patch(patchParams, (err, response) => {
+          if (err) {
+            console.log(chalk.red('An error occured during updating the work log.'));
+            return reject(err);
+          }
+
+          const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
+          console.log(chalk.green(`Work logged${linkOrDot}`));
+          resolve();
+        });
+      });
+    }
+  }
+
+  /**
+   * Conclude timelog.
+   */
+  async logEnd () {
+    const googleCalendar = await this.calendarConnection,
+          logName = this.getLogName(this.strings.activityConcluded);;
+
+    const {
+      currentTime: endTime,
+      timeZone,
+    } = this.getCurrentTime();
+
+    const concludedLogName = this.getLogName(this.strings.activityConcluded);
+
+    // Get the latest incomplete work log event
+    const latestIncompleteLogEvent = await this.getLatestIncompleteLogEvent(endTime, timeZone);
+
+    // Check for inactivity
+    const inactivityDetected = this.hasInactivity(latestIncompleteLogEvent, endTime);
+
+    if (inactivityDetected) {
+      // End the previous log
+      await this.logEndDueToInactivity(latestIncompleteLogEvent, endTime);
+    }
+
+    else {
+      const patchParams = {
+        calendarId: this.calendarId,
+        eventId: latestIncompleteLogEvent.id,
+        resource: {
+          summary: logName,
+          description: this.addToDescription(endTime, concludedLogName, latestIncompleteLogEvent.description),
+          end: {
+            dateTime: endTime.toISOString(),
+            timeZone,
+          },
+          extendedProperties: {
+            private: {
+              completed: 'true',
+            },
+          },
+        }
+      };
+
+      return new Promise((resolve, reject) => {
+        googleCalendar.events.patch(patchParams, (err, response) => {
+          if (err) {
+            console.log(chalk.red('An error occured during creating the completed work log.'));
+            return reject(err);
+          }
+
+          const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
+          console.log(chalk.green(`Work logged${linkOrDot}`));
+          resolve();
+        });
+      });
+    }
+  }
+
+  async logEndDueToInactivity (latestIncompleteLogEvent, activityTime) {
+    console.log(chalk.blue(`Inactivity detected, ending previous log and creating a new one.`));
+
+    const googleCalendar = await this.calendarConnection,
+          concludedLogName = this.getLogName(this.strings.activityConcluded),
+          closedDueToInactivity = this.getLogName(this.strings.closedDueToInactivity);
+
+    const patchParams = {
+      calendarId: this.calendarId,
+      eventId: latestIncompleteLogEvent.id,
+      resource: {
+        summary: concludedLogName,
+        description: this.addToDescription(activityTime, `${concludedLogName} ${closedDueToInactivity}`, latestIncompleteLogEvent.description),
+        extendedProperties: {
+          private: {
+            completed: 'true',
+          },
+        },
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      googleCalendar.events.patch(patchParams, (err, response) => {
+        if (err) {
+          console.log(chalk.red('An error occured during creating the completed work log.'));
+          return reject(err);
+        }
+
+        const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
+        console.log(chalk.green(`Work logged${linkOrDot}`));
+        resolve();
+      });
+    });
+  }
+
+  async getLatestIncompleteLogEvent (currentTime, timeZone) {
+    const googleCalendar = await this.calendarConnection;
+
+    const listParams = {
+      calendarId: this.calendarId,
+      // Google Calendar API doesn't support listing in descending order,
+      // we have to specify timeMin and timeMax instead and reverse order later.
+      // Assuming you didn't start working more than 1 month ago, this should work:
+      timeMin: new Date(+currentTime - 1000 * 60 * 60 * 24 * 31).toISOString(),
+      timeMax: currentTime.toISOString(),
+      timeZone,
+      singleEvents: true,
+      orderBy: 'startTime',
+    };
+
+    // Get the latest incomplete work log
+    return new Promise((resolve, reject) => {
       googleCalendar.events.list(listParams, (err, response) => {
         if (err) {
           console.log(chalk.red('An error occured during listing events:'));
@@ -273,13 +427,17 @@ module.exports = class GoogleCalendarLogger {
 
         const events = response.data.items;
         if (events.length) {
-          // Get the latest log with 'incomplete work' in the description
-          const latestIncompleteWork = events.reverse().find(event => event.description.startsWith('incomplete work'));
+          // Find the latest incomplete log
+          const latestIncompleteLogEvent = events.reverse().find((event) => {
+            try {
+              const { completed } = event.extendedProperties.private;
+              return completed === 'false';
+            } catch (err) {}
+          });
 
-          if (latestIncompleteWork) {
-            resolve(latestIncompleteWork);
+          if (latestIncompleteLogEvent) {
+            resolve(latestIncompleteLogEvent);
           }
-
           else {
             reject(new Error(`Couldn't create log: no latest incomplete event found in the past 31 days.`));
           }
@@ -289,169 +447,30 @@ module.exports = class GoogleCalendarLogger {
         }
       });
     });
-
-    console.log(latestIncompleteWork);
-
-    // Check for inactivity
-    const lastActivity = +new Date(latestIncompleteWork.updated || latestIncompleteWork.created),
-          inactivity = (+activityTime - lastActivity) > msUntilInactivity;
-
-    if (inactivity) {
-      console.log(`Possible inactivity detected, closing previous log and creating new one.`);
-
-      const closePreviousLogPromise = new Promise((resolve, reject) => {
-        const patchParams = {
-          calendarId,
-          eventId: latestIncompleteWork.id,
-          resource: {
-            summary: `Worked on ${calendarSummary}`, // TODO: how do we keep this the same as in logEnd
-            description: `Completed work (closed due to inactivity)`, // TODO: okay, we need a 'strings' object
-          }
-        };
-
-        googleCalendar.events.patch(patchParams, (err, response) => {
-          if (err) {
-            console.log(chalk.red('An error occured during creating the completed work log:'));
-            return reject(err);
-          }
-
-          console.log(chalk.green(`Work logged: ${response.data.htmlLink}`));
-          resolve();
-        });
-      });c
-
-      const inactivityLogPromise = new Promise((resolve, reject) => {
-        // const patchParams = {
-        //   calendarId,
-        //   eventId: latestIncompleteWork.id,
-        //   resource: {
-        //     summary: `Worked on ${calendarSummary}`, // TODO: how do we keep this the same as in logEnd
-        //     description: `Completed work (closed due to inactivity)`, // TODO: okay, we need a 'strings' object
-        //   }
-        // };
-
-        // googleCalendar.events.patch(patchParams, (err, response) => {
-        //   if (err) {
-        //     console.log(chalk.red('An error occured during creating the completed work log:'));
-        //     return reject(err);
-        //   }
-
-        //   console.log(chalk.green(`Work logged: ${response.data.htmlLink}`));
-        //   resolve();
-        // });
-      });
-
-      // Create new event
-      await Promise.all([closePreviousLogPromise, logStart(calendarSummary)]);
-    }
-
-    else {
-      await new Promise((resolve, reject) => {
-        const patchParams = {
-          calendarId,
-          eventId: latestIncompleteWork.id,
-          resource: {
-            summary: logName,
-            end: {
-              dateTime: activityTime.toISOString(),
-              timeZone,
-            }
-          },
-        };
-
-        googleCalendar.events.patch(patchParams, (err, response) => {
-          if (err) {
-            console.log(chalk.red('An error occured during updating the work log:'));
-            return reject(err);
-          }
-
-          console.log(chalk.green(`Work logged: ${response.data.htmlLink}`));
-          resolve();
-        });
-      });
-    }
   }
 
-  /**
-   * Create a start event in calendar 'calendarSummary'.
-   * @param {String} calendarSummary Title of the calendar.
-   * @param {String} logName Desired title of the previous start event after calling logEnd.
-   */
-  async logEnd (calendarSummary = this.calendarSummary, logName = this.strings.activityConcluded) {
-    if (typeof logName === 'function') logName = logName(calendarSummary);
+  addToDescription (date, activity, description = '') {
+    console.log('Description was:\n', description, '\n');
+    // If not empty description, add newline
+    if (description !== '') description += `${description}\n`;
 
-    const googleCalendar = await this.calendarConnection,
-          calendarId = await this.getCalendarId(googleCalendar, calendarSummary);
+    const hh = `0${date.getHours()}`.slice(-2),
+          mm = `0${date.getMinutes()}`.slice(-2);
 
-    const {
-      currentTime: endTime,
-      timeZone,
-    } = this.getCurrentTime();
+    // Add the new activity
+    description += `${hh}:${mm} – ${activity}`;
+    console.log('Now: \n', description, '\n');
+    return description;
+  }
 
-    // Get the latest incomplete work log
-    const latestIncompleteWork = await new Promise((resolve, reject) => {
-      googleCalendar.events.list(
-        {
-          calendarId,
-          // Google Calendar API doesn't support listing in descending order,
-          // we have to specify timeMin and timeMax instead and reverse order later.
-          // Assuming you didn't start working more than 1 month ago, this should work:
-          timeMin: new Date(+endTime - 1000 * 60 * 60 * 24 * 31).toISOString(),
-          timeMax: endTime.toISOString(),
-          timeZone,
-          singleEvents: true,
-          orderBy: 'startTime',
-        },
-        (err, response) => {
-          if (err) {
-            console.log(chalk.red('An error occured during listing events:'));
-            return reject(err);
-          }
+  getLogName (logName) {
+    return (typeof logName === 'function') ? logName(this.calendarSummary) : logName;
+  }
 
-          const events = response.data.items;
-          if (events.length) {
-            // Get the latest log with 'incomplete work' in the description
-            const latestIncompleteWork = events.reverse().find(event => event.description.startsWith('incomplete work'));
-
-            if (latestIncompleteWork) {
-              resolve(latestIncompleteWork);
-            }
-
-            else {
-              reject(new Error(`Couldn't create log: no latest incomplete event found in the past 31 days.`));
-            }
-          }
-          else {
-            reject(new Error(`Couldn't create log: found no events in the past 31 days.`));
-          }
-        }
-      );
-    });
-
-    await new Promise((resolve, reject) => {
-      const patchParams = {
-        calendarId,
-        eventId: latestIncompleteWork.id,
-        resource: {
-          summary: logName,
-          description: `Completed work`,
-          end: {
-            dateTime: endTime.toISOString(),
-            timeZone,
-          },
-        }
-      };
-
-      googleCalendar.events.patch(patchParams, (err, response) => {
-        if (err) {
-          console.log(chalk.red('An error occured during creating the completed work log:'));
-          return reject(err);
-        }
-
-        console.log(chalk.green(`Work logged: ${response.data.htmlLink}`));
-        resolve();
-      });
-    });
+  hasInactivity (latestIncompleteLogEvent, currentTime) {
+    // Check for inactivity
+    const lastActivity = +new Date(latestIncompleteLogEvent.updated || latestIncompleteLogEvent.created);
+    return (+currentTime - lastActivity) > this.msUntilInactivity;
   }
 
 }
