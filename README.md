@@ -1,6 +1,7 @@
 # Google Calendar Logger
 
-***Work in progress, package may not work properly at this time.***
+***Work in progress, package will not work properly at this time.***
+***Known problems: can't create token.***
 
 ## Installation
 - `pnpm i google-calendar-logger -D`
