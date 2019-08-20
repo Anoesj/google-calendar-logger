@@ -1,6 +1,6 @@
 # Google Calendar Logger
 
-***Work in progress, package will not work properly at this time. More information will follow.***
+***Work in progress, package may not work properly at this time.***
 
 ## Installation
 - `pnpm i google-calendar-logger -D`
@@ -14,6 +14,7 @@ To start using the logger, you'll need to:
 3. then, the first time, you'll be asked to visit a URL to generate a token.json
 
 ## Creating an instance of the logger
+For each calendar you want to log to, you'll need to create a new instance of Google Calendar Logger:
 ```javascript
 const GoogleCalendarLogger = require('./google-calendar-logger'),
       path = require('path');
@@ -34,14 +35,64 @@ const bs = require('browser-sync').create();
 
 // Create GCL instance, like in the example above
 
+// Logging start
 bs.init({
   server: 'src',
   open: false,
 }, () => { logger.logStart(); });
+
+// Logging activity
+bs.watch('src/index.html').on('change', handleChange);
+bs.watch('src/**/*.js').on('change', handleChange);
+
+function handleChange (...args) {
+  bs.reload(...args);
+
+  const fileNames = args.map(file => path.posix.basename(file));
+  logger.logActivity('Changes in ' + fileNames.join(', '));
+}
 ```
 
-***TODO: Add `logger.logActivity()` example.***
+Then, use something like `node-cleanup` to call `logger.logEnd()` when you're ending the Browsersync process. **Disclaimer**: I'm not entirely sure this is the correct way of using `node-cleanup`. I'm open to suggestions!
 
-Then, use node-cleanup to call `logger.logEnd()` when you're ending the Browsersync process.
+```javascript
+const nodeCleanup = require('node-cleanup');
 
-***TODO: Add `logger.logEnd()` example.***
+// Logging end
+nodeCleanup((exitCode, signal) => {
+  if (signal) {
+    // Stop Browsersync
+    bs.exit();
+
+    logger.logEnd().then(() => {
+      // calling process.exit() won't inform parent process of signal
+      process.kill(process.pid, signal);
+    });
+
+    // don't call cleanup handler again
+    nodeCleanup.uninstall();
+
+    // tell node-cleanup not to exit yet
+    return false;
+  }
+}, {
+  ctrl_C: '\n^C\n',
+});
+```
+
+## Optional
+Set `minutesUntilInactivity` to change how soon a log will be interrupted because of inactivity. By default, a log will be split on the next `logActivity()` or trimmed when calling `logEnd()` if there hasn't been any activity for 10 minutes or longer.
+
+Set `showLinks` to `true` to print URLs to the created/updated events in the CLI.
+
+You can also override strings in the `strings` object to customize how events are called in your calendar. You can either enter a string or a function, where the only parameter is a string equal to the calendar name (this may change later on, because it's kind of pointless).
+Strings you can override are:
+```javascript
+{
+  activityStarted:              projectName => `Started working on ${projectName}`,
+  activityInProgress:           projectName => `Working on ${projectName}`,
+  activityConcluded:            projectName => `Worked on ${projectName}`,
+  activityLogged:               projectName => `Activity in ${projectName}`,
+  closedDueToInactivity:        projectName => `(closed due to inactivity)`,
+}
+```
