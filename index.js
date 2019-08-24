@@ -73,7 +73,7 @@ module.exports = class GoogleCalendarLogger {
       this.credentialsPath = credentialsPath;
     }
     else {
-      throw new Error(`Missing or incorrect value for required option 'credentialsPath'`);
+      throw new Error(`✗ Missing or incorrect value for required option 'credentialsPath'`);
     }
   }
 
@@ -82,7 +82,7 @@ module.exports = class GoogleCalendarLogger {
       this.tokenPath = tokenPath;
     }
     else {
-      throw new Error(`Missing or incorrect value for required option 'tokenPath'`);
+      throw new Error(`✗ Missing or incorrect value for required option 'tokenPath'`);
     }
   }
 
@@ -91,7 +91,7 @@ module.exports = class GoogleCalendarLogger {
       this.calendarSummary = calendarSummary;
     }
     else {
-      throw new Error(`Missing or incorrect value for required option 'calendar'`);
+      throw new Error(`✗ Missing or incorrect value for required option 'calendar'`);
     }
   }
 
@@ -135,7 +135,7 @@ module.exports = class GoogleCalendarLogger {
       }
 
       catch (err) {
-        console.error(chalk.red(`Could not establish connection with Google Calendar API.`));
+        console.error(chalk.red(`✗ Could not establish connection with Google Calendar API.`));
         reject(err);
       }
     });
@@ -153,8 +153,8 @@ module.exports = class GoogleCalendarLogger {
 
         // If cal exists, return it
         if (calendar) {
-          console.log(chalk.green(`Found calendar “${calendarSummary}”.`));
-          resolve(calendar);
+          console.log(chalk.green(`Found calendar “${calendarSummary}”.`)); // TODO: too verbose?
+          return resolve(calendar);
         }
 
         // If cal doesn't exist, create it
@@ -168,9 +168,12 @@ module.exports = class GoogleCalendarLogger {
           };
 
           googleCalendar.calendars.insert(newCal, (err, response) => {
-            if (err) throw err;
-            console.log(chalk.green(`Created calendar “${calenderSummary}”.`));
-            resolve(response.data);
+            if (err) {
+              return reject(err);
+            }
+
+            console.log(chalk.green(`✔ Created calendar “${calenderSummary}”.`));
+            return resolve(response.data);
           });
         }
       });
@@ -237,12 +240,12 @@ module.exports = class GoogleCalendarLogger {
     return new Promise((resolve, reject) => {
       googleCalendar.events.insert(eventParams, (err, response) => {
         if (err) {
-          console.log(chalk.red(`There was an error creating a start event.`));
+          console.log(chalk.red(`✗ There was an error creating a start event.`));
           return reject(err);
         }
 
         const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
-        console.log(chalk.green(`Start event created${linkOrDot}`));
+        console.log(chalk.green(`✔ Start event created${linkOrDot}`));
         resolve();
       });
     });
@@ -272,6 +275,9 @@ module.exports = class GoogleCalendarLogger {
 
       // Then start new, so we don't accidentally immediately end the newly started log
       await this.logStart();
+
+      // Then log the activity after all
+      await this.logActivity(activityDescription);
     }
 
     else {
@@ -296,12 +302,12 @@ module.exports = class GoogleCalendarLogger {
       return new Promise((resolve, reject) => {
         googleCalendar.events.patch(patchParams, (err, response) => {
           if (err) {
-            console.log(chalk.red('An error occured during updating the work log.'));
+            console.log(chalk.red('✗ An error occured during updating the work log.'));
             return reject(err);
           }
 
           const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
-          console.log(chalk.green(`Work logged${linkOrDot}`));
+          console.log(chalk.green(`✔ Work logged${linkOrDot}`));
           resolve();
         });
       });
@@ -355,12 +361,12 @@ module.exports = class GoogleCalendarLogger {
       return new Promise((resolve, reject) => {
         googleCalendar.events.patch(patchParams, (err, response) => {
           if (err) {
-            console.log(chalk.red('An error occured during creating the completed work log.'));
+            console.log(chalk.red('✗ An error occured during creating the completed work log.'));
             return reject(err);
           }
 
           const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
-          console.log(chalk.green(`Work logged${linkOrDot}`));
+          console.log(chalk.green(`✔ Work logged${linkOrDot}`));
           resolve();
         });
       });
@@ -391,12 +397,12 @@ module.exports = class GoogleCalendarLogger {
     return new Promise((resolve, reject) => {
       googleCalendar.events.patch(patchParams, (err, response) => {
         if (err) {
-          console.log(chalk.red('An error occured during creating the completed work log.'));
+          console.log(chalk.red('✗ An error occured during creating the completed work log.'));
           return reject(err);
         }
 
         const linkOrDot = (this.showLinks === true) ? `: ${response.data.htmlLink}.` : '.';
-        console.log(chalk.green(`Work logged${linkOrDot}`));
+        console.log(chalk.green(`✔ Work logged${linkOrDot}`));
         resolve();
       });
     });
@@ -410,7 +416,7 @@ module.exports = class GoogleCalendarLogger {
       // Google Calendar API doesn't support listing in descending order,
       // we have to specify timeMin and timeMax instead and reverse order later.
       // Assuming you didn't start working more than 1 month ago, this should work:
-      timeMin: new Date(+currentTime - 1000 * 60 * 60 * 24 * 31).toISOString(),
+      timeMin: new Date(+currentTime - 1000 * 60 * 60 * 24 * 7).toISOString(),
       timeMax: currentTime.toISOString(),
       timeZone,
       singleEvents: true,
@@ -421,7 +427,7 @@ module.exports = class GoogleCalendarLogger {
     return new Promise((resolve, reject) => {
       googleCalendar.events.list(listParams, (err, response) => {
         if (err) {
-          console.log(chalk.red('An error occured during listing events:'));
+          console.log(chalk.red('✗ An error occured during listing events.'));
           return reject(err);
         }
 
@@ -439,11 +445,13 @@ module.exports = class GoogleCalendarLogger {
             resolve(latestIncompleteLogEvent);
           }
           else {
-            reject(new Error(`Couldn't create log: no latest incomplete event found in the past 31 days.`));
+            console.log(chalk.red(`✗ Couldn't create log.`));
+            reject(new Error(`No latest incomplete event found in the past 7 days.`));
           }
         }
         else {
-          reject(new Error(`Couldn't create log: found no events in the past 31 days.`));
+          console.log(chalk.red(`✗ Couldn't create log.`));
+          reject(new Error(`Found no events in the past 7 days.`));
         }
       });
     });
