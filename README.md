@@ -1,6 +1,6 @@
 # Google Calendar Logger
 
-***Work in progress, package will not work properly at this time.***
+***Work in progress, package might not work properly at this time.***
 ***Known problems: can't create token.***
 
 ## Installation
