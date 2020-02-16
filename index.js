@@ -172,7 +172,7 @@ module.exports = class GoogleCalendarLogger {
               return reject(err);
             }
 
-            console.log(chalk.green(`✔ Created calendar “${calenderSummary}”.`));
+            console.log(chalk.green(`✔ Created calendar “${calendarSummary}”.`));
             return resolve(response.data);
           });
         }
@@ -415,7 +415,7 @@ module.exports = class GoogleCalendarLogger {
       calendarId: this.calendarId,
       // Google Calendar API doesn't support listing in descending order,
       // we have to specify timeMin and timeMax instead and reverse order later.
-      // Assuming you didn't start working more than 1 month ago, this should work:
+      // Assuming you didn't start working more than 1 week ago, this should work:
       timeMin: new Date(+currentTime - 1000 * 60 * 60 * 24 * 7).toISOString(),
       timeMax: currentTime.toISOString(),
       timeZone,
